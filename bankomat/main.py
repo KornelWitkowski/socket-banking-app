@@ -61,7 +61,7 @@ class loginWindow(QWidget):
         self.labelPassword.setFont(QFont('Arial', 14))
         self.labelPassword.setAlignment(Qt.AlignLeft)
         lay.addWidget(self.labelPassword, *(3, 0, 1, 1))
-        self.textboxPassword=QLineEdit(self)
+        self.textboxPassword = QLineEdit(self)
         self.textboxPassword.setEchoMode(QLineEdit.Password)
         self.textboxPassword.setFont(QFont('Arial', 14))
         self.textboxPassword.setFixedSize(200, 50)
@@ -86,11 +86,11 @@ class loginWindow(QWidget):
 
         Parent = self.parent().parent()
 
-        if answer.decode() =="Ok":
-            self.setParent(None)
-            Parent.loggedinWin = loggedinWindow(self)
-            Parent.loggedinWin.setFixedSize(500, 250)
-            Parent.LAYOUT.addWidget(Parent.loggedinWin, *(1, 1, 1, 1))
+      #  if answer.decode() =="Ok":
+        self.setParent(None)
+        Parent.loggedinWin = loggedinWindow(self)
+        Parent.loggedinWin.setFixedSize(500, 250)
+        Parent.LAYOUT.addWidget(Parent.loggedinWin, *(1, 1, 1, 1))
 
 
 class loggedinWindow(QWidget):
@@ -123,10 +123,10 @@ class loggedinWindow(QWidget):
         self.textboxTimeMax.setFixedSize(100, 25)
         self.lay.addWidget(self.textboxTimeMax, *(3, 1, 1, 1))
 
-
         btns = {(4, 0): "Payment", (4, 1): "Payoff",
                 (5, 0): "History", (5, 1): "Data",
                 (6, 0): "Change password", (6, 1): "Block account"}
+
 
         for pos, name in btns.items():
             x, y = pos
@@ -134,9 +134,11 @@ class loggedinWindow(QWidget):
             btn.setText(name)
             self.lay.addWidget(btn, x, y)
 
-
-        self.setLayout(self.lay)
-
+        self.setBtn = QPushButton(text='Log out')
+        self.setBtn.setFont(QFont('Arial', 14))
+        self.setBtn.setFixedSize(200, 45)
+        self.setBtn.clicked.connect(self.wylogowanie)
+        self.lay.addWidget(self.setBtn, *(8, 0))
 
 
     def showTime(self):
@@ -144,6 +146,51 @@ class loggedinWindow(QWidget):
         timeDisplay = time.toString('yyyy-MM-dd hh:mm:ss dddd')
         self.labelTime.setText(timeDisplay)
 
+    def wylogowanie(self):
+        Parent = self.parent().parent()
+        self.setParent(None)
+        Parent.logout = Ekran_wylogowania(self)
+        Parent.logout.setFixedSize(500, 250)
+        Parent.LAYOUT.addWidget(Parent.logout, *(1, 1, 1, 1))
+
+class Ekran_wylogowania(QWidget):
+    def __init__(self, parent):
+        QWidget.__init__(self, parent=parent)
+        lay = QGridLayout(self)
+
+        self.labelName = QLabel("Zostałeś poprawnie wylogowany! :)")
+        self.labelName.setFont(QFont('Arial', 14))
+        self.labelName.setAlignment(Qt.AlignLeft)
+        lay.addWidget(self.labelName, *(1, 0))
+
+
+        self.bt1 = QPushButton(text='Zamknij')
+        self.bt1.setFont(QFont('Arial', 14))
+        self.bt1.setFixedSize(200, 45)
+        self.bt1.clicked.connect(self.zamknij)
+        lay.addWidget(self.bt1, *(8, 0))
+
+#        self.bt2 = QPushButton(text='Zaloguj ponownie')
+#        self.bt2.setFont(QFont('Arial', 14))
+#        self.bt2.setFixedSize(200, 45)
+#        self.bt2.clicked.connect(self.zaloguj_ponownie)
+#        lay.addWidget(self.bt2, *(8, 1))
+
+        return
+
+    def zamknij(self):
+        Parent = self.parent().parent()
+        self.setParent(None)
+        Parent.logout = exit()
+        Parent.logout.setFixedSize(500, 250)
+        Parent.LAYOUT.addWidget(Parent.logout, *(1, 1, 1, 1))
+
+#    def zaloguj_ponownie(self):
+#        Parent = self.parent().parent()
+#        self.setParent(None)
+#        Parent.log = loginWindow(self)
+#        Parent.log.setFixedSize(500, 250)
+#        Parent.LAYOUT.addWidget(Parent.log, *(1, 1, 1, 1))
 
 if __name__== '__main__':
     app = QApplication(sys.argv)
