@@ -438,6 +438,9 @@ class ShowDatabaseWidget(QWidget):
         self.tableWidget.setHorizontalHeaderLabels(["Name", "Surname", "PESEL", "Login", "Password",
                                                     "Balance", "Attempts", "Activity", "Status", "", ""])
 
+        header = self.tableWidget.horizontalHeader()
+        header.setSectionResizeMode(5, QHeaderView.Stretch)
+
         for count1, row in enumerate(cur.execute("SELECT id, name, surname, pesel, login, password, balance,"
                                                  " attempts, activity, status FROM ClientData ORDER BY name ")):
             for count2, cell in enumerate(row):
@@ -548,6 +551,8 @@ class ShowDatabaseWidget(QWidget):
             databaseTable = cur.execute("SELECT * FROM ClientData ORDER BY {}".format(self.sortingParameter+2))
         else:
             databaseTable = cur.execute("SELECT * FROM ClientData ORDER BY {} DESC".format(self.sortingParameter+2))
+
+        self.tableWidget.setParent(None)
 
         for count1, row in enumerate(databaseTable):
             for count2, cell in enumerate(row):
