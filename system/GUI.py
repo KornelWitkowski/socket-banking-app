@@ -16,7 +16,7 @@ cur.execute('''UPDATE ClientData SET activity = 0''')
 conSQL.commit()
 
 TCP_IP = '127.0.0.1'
-TCP_PORT = 5005
+#TCP_PORT = 5005
 BUFFER_SIZE = 1024
 
 
@@ -220,11 +220,13 @@ def process_request(conn, addr):
         conn.close()
 
 
-def process_socket():
+def process_socket(TCP_PORT):
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
         sock.bind((TCP_IP, TCP_PORT))
         sock.listen()
         processes = []
+
+
         while True:
             conn, addr = sock.accept()
             p = Process(target=process_request, args=(conn, addr))
@@ -248,7 +250,6 @@ class MainWindow(QMainWindow):
         self.LAYOUT = QGridLayout()
         self.frame.setLayout(self.LAYOUT)
         self.setCentralWidget(self.frame)
-
 
         self.showDatabaseWidget = ShowDatabaseWidget(self)
         self.showDatabaseWidget.setFixedSize(1420, 500)
@@ -295,8 +296,9 @@ class ConnectionTable(QWidget):
         self.tableWidget.move(0, 0)
         self.lay.addWidget(self.tableWidget, *(0, 0, 1, 1))
 
-        p = Process(target=process_socket)
-        p.start()
+        for i in range(5):
+            p = Process(target=process_socket, args=(5005+1000*i,))
+            p.start()
 
         self.timer = QTimer()
         self.timer.timeout.connect(self.refresh)
@@ -438,9 +440,6 @@ class ShowDatabaseWidget(QWidget):
         self.tableWidget.setHorizontalHeaderLabels(["Name", "Surname", "PESEL", "Login", "Password",
                                                     "Balance", "Attempts", "Activity", "Status", "", ""])
 
-        header = self.tableWidget.horizontalHeader()
-        header.setSectionResizeMode(5, QHeaderView.Stretch)
-
         for count1, row in enumerate(cur.execute("SELECT id, name, surname, pesel, login, password, balance,"
                                                  " attempts, activity, status FROM ClientData ORDER BY name ")):
             for count2, cell in enumerate(row):
@@ -551,8 +550,6 @@ class ShowDatabaseWidget(QWidget):
             databaseTable = cur.execute("SELECT * FROM ClientData ORDER BY {}".format(self.sortingParameter+2))
         else:
             databaseTable = cur.execute("SELECT * FROM ClientData ORDER BY {} DESC".format(self.sortingParameter+2))
-
-        self.tableWidget.setParent(None)
 
         for count1, row in enumerate(databaseTable):
             for count2, cell in enumerate(row):
