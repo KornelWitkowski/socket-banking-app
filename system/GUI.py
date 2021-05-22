@@ -17,7 +17,7 @@ conSQL.commit()
 
 TCP_IP = '127.0.0.1'
 #TCP_PORT = 5005
-BUFFER_SIZE = 1024
+BUFFER_SIZE = 10 * 1024
 
 
 def process_request(conn, addr):
@@ -132,7 +132,7 @@ def process_request(conn, addr):
                     cur.execute('SELECT history FROM  ClientData WHERE id=?', (UserId,))
                     history = cur.fetchone()[0]
                     conn.send(str.encode(history))
-
+                    print("historia")
                 elif data.decode() == 'Show data':
                     for row in cur.execute("SELECT * FROM ClientData WHERE id = '%s'" % UserId):
                         for cell in row:
@@ -140,10 +140,10 @@ def process_request(conn, addr):
 
                     AccountDataDic = {"id": AccountData[0], "name": AccountData[1], "surname": AccountData[2],
                                         "PESEL": AccountData[3], "login": AccountData[4], "password": AccountData[5],
-                                        "balance": AccountData[6], "status": AccountData[7]}
+                                        "balance": AccountData[6], "status": AccountData[9]}
 
+                    print(AccountDataDic)
                     conn.send(str.encode(str(AccountDataDic)))
-
                 try:
                     DecodedData = ast.literal_eval(data.decode())
                     AccountData = []
@@ -226,7 +226,6 @@ def process_socket(TCP_PORT):
         sock.listen()
         processes = []
 
-
         while True:
             conn, addr = sock.accept()
             p = Process(target=process_request, args=(conn, addr))
@@ -296,7 +295,7 @@ class ConnectionTable(QWidget):
         self.tableWidget.move(0, 0)
         self.lay.addWidget(self.tableWidget, *(0, 0, 1, 1))
 
-        for i in range(5):
+        for i in range(1):
             p = Process(target=process_socket, args=(5005+1000*i,))
             p.start()
 

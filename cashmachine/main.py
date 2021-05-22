@@ -11,7 +11,7 @@ import json
 
 TCP_IP = '127.0.0.1'
 TCP_PORT = 5005
-BUFFER_SIZE = 1024
+BUFFER_SIZE = 10*1024
 
 
 s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -94,7 +94,7 @@ class LoggedinWindow(QWidget):
     def __init__(self, parent):
         QWidget.__init__(self, parent=parent)
 
-        time.sleep(0.5)
+        time.sleep(0.1)
         s.send(str.encode("Give me all that you got now!"))
         answer = s.recv(BUFFER_SIZE)
 
