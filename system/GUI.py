@@ -1,5 +1,4 @@
 import sqlite3
-
 import socket
 import sys
 import ast
@@ -10,7 +9,6 @@ from PyQt5.QtWidgets import *
 from PyQt5.QtCore import *
 from PyQt5.QtGui import *
 
-
 conSQL = sqlite3.connect('Database.db')
 cur = conSQL.cursor()
 cur.execute('''UPDATE Connections SET activity = 0''')
@@ -18,8 +16,8 @@ cur.execute('''UPDATE ClientData SET activity = 0''')
 conSQL.commit()
 
 TCP_IP = '127.0.0.1'
-TCP_PORT = 5005
-BUFFER_SIZE = 1024
+#TCP_PORT = 5005
+BUFFER_SIZE = 10 * 1024
 
 
 def process_request(conn, addr):
@@ -34,6 +32,10 @@ def process_request(conn, addr):
             try:
                 data = conn.recv(BUFFER_SIZE)
             except:
+                if Time:
+                    cur.execute('''UPDATE Connections SET activity = ?
+                                            where time = ?''', (False, Time))
+                conSQL.commit()
                 break
 
             if not data:
@@ -59,9 +61,14 @@ def process_request(conn, addr):
                     AccountData.append(row)
 
                 if len(AccountData) == 0:
-                    conn.send(b"Not ok")
+                    conn.send(b"Wrong login")
                 else:
-                    if AccountData[0][5] == DecodedData["Password"]:
+
+                    if AccountData[0][9] == 0:
+                        conn.send(b"Account blocked")
+                    elif AccountData[0][8] == 1:
+                        conn.send(b"Account in use")
+                    elif AccountData[0][5] == DecodedData["Password"]:
                         conn.send(b"Ok")
                         cur.execute('''UPDATE ClientData SET activity = ?, attempts = ?
                         where login = ?''', (True, 0, DecodedData["Login"]))
@@ -76,16 +83,19 @@ def process_request(conn, addr):
 
                         conSQL.commit()
 
-
-
                     else:
+                        print(AccountData[0][8])
                         cur.execute('''UPDATE ClientData SET attempts = ? where login = ?''',
-                                    (AccountData[0][8] + 1, DecodedData["Login"]))
-                        if AccountData[0][8] + 1 >= 5:
+                                    (AccountData[0][7] + 1, DecodedData["Login"]))
+
+                        if AccountData[0][7] + 1 >= 5:
                             cur.execute('''UPDATE ClientData SET status = ? where login = ?''',
                                         (False, DecodedData["Login"]))
-                        conSQL.commit()
-                        conn.send(b"Not ok")
+                            conSQL.commit()
+                            conn.send(b"Account has been blocked")
+                        else:
+                            conSQL.commit()
+                            conn.send(b"Wrong password")
 
             else:
 
@@ -114,21 +124,25 @@ def process_request(conn, addr):
                     loggedIn = False
 
                 elif data.decode() == 'Block account':
-                    cur.execute('''UPDATE ClientData SET status = ? activity = ?  where ID = ?''', (False, False, UserId))
+                    cur.execute('''UPDATE ClientData SET status = ?, activity = ?  where ID = ?''', (False, False, UserId))
                     conSQL.commit()
                     conn.send(str.encode(str("Account has been blocked")))
 
+                elif data.decode() == "History":
+                    cur.execute('SELECT history FROM  ClientData WHERE id=?', (UserId,))
+                    history = cur.fetchone()[0]
+                    conn.send(str.encode(history))
+
                 elif data.decode() == 'Show data':
-                    for row in cur.execute("SELECT * FROM ClientData WHERE login = '%s'" % DecodedData["Login"]):
+                    for row in cur.execute("SELECT * FROM ClientData WHERE id = '%s'" % UserId):
                         for cell in row:
                             AccountData.append(cell)
 
                     AccountDataDic = {"id": AccountData[0], "name": AccountData[1], "surname": AccountData[2],
-                                   "PESEL": AccountData[3], "login": AccountData[4], "password": AccountData[5],
-                                   "balance": AccountData[6], "status": AccountData[7]}
+                                        "PESEL": AccountData[3], "login": AccountData[4], "password": AccountData[5],
+                                        "balance": AccountData[6], "status": AccountData[9]}
 
                     conn.send(str.encode(str(AccountDataDic)))
-
                 try:
                     DecodedData = ast.literal_eval(data.decode())
                     AccountData = []
@@ -151,20 +165,40 @@ def process_request(conn, addr):
 
                     if DecodedData['transaction type'] == "Deposit" or DecodedData['transaction type'] == "Payout":
 
-
                         balance = AccountData[6]
 
                         if transactionType == "Deposit":
                             cur.execute('''UPDATE ClientData SET balance = ? where ID = ?''', (balance + amount, UserId))
+                            cur.execute('SELECT history FROM ClientData where id =?', (UserId,))
+                            history = cur.fetchone()[0]
+                            if history == ' ':
+                                cur.execute('''UPDATE ClientData SET history = ? where ID = ?''',
+                                            (transactionType + " " + str(amount) + " "
+                                             + transactionTime, UserId))
+                            else:
+                                cur.execute('''UPDATE ClientData SET history = ? where ID = ?''',
+                                            (history + "\n" + transactionType + " " + str(amount) + " "
+                                             + transactionTime, UserId))
+
                             conSQL.commit()
                             conn.send(str.encode(str({'balance': balance + amount})))
                         else:
                             if balance >= amount:
                                 cur.execute('''UPDATE ClientData SET balance = ? where ID = ?''', (balance - amount, UserId))
+                                cur.execute('SELECT history FROM ClientData where id =?', (UserId,))
+                                history = cur.fetchone()[0]
+                                if history == ' ':
+                                    cur.execute('''UPDATE ClientData SET history = ? where ID = ?''',
+                                                (transactionType + " " + str(amount) + " "
+                                                 + transactionTime , UserId))
+                                else:
+                                    cur.execute('''UPDATE ClientData SET history = ? where ID = ?''',
+                                                (history + "\n" + transactionType + " " + str(amount) + " "
+                                                 + transactionTime, UserId))
+
                                 conSQL.commit()
                                 conn.send(str.encode(str({'balance': balance - amount})))
                             else:
-
                                 conn.send(str.encode("Not enough money."))
 
                 elif 'CurrentPassword' in DecodedData:
@@ -185,11 +219,12 @@ def process_request(conn, addr):
         conn.close()
 
 
-def process_socket():
+def process_socket(TCP_PORT):
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
         sock.bind((TCP_IP, TCP_PORT))
         sock.listen()
         processes = []
+
         while True:
             conn, addr = sock.accept()
             p = Process(target=process_request, args=(conn, addr))
@@ -214,17 +249,21 @@ class MainWindow(QMainWindow):
         self.frame.setLayout(self.LAYOUT)
         self.setCentralWidget(self.frame)
 
-        self.addRecordWidget = AddRecordWidget(self)
-        self.addRecordWidget.setFixedSize(500, 250)
-        self.LAYOUT.addWidget(self.addRecordWidget, *(2, 1, 1, 1))
-
         self.showDatabaseWidget = ShowDatabaseWidget(self)
         self.showDatabaseWidget.setFixedSize(1420, 500)
-        self.LAYOUT.addWidget(self.showDatabaseWidget, *(1, 0, 1, 4))
+        self.LAYOUT.addWidget(self.showDatabaseWidget, *(1, 0, 1, 6))
 
         self.connectionTable = ConnectionTable(self)
         self.connectionTable.setFixedSize(580, 300)
         self.LAYOUT.addWidget(self.connectionTable, *(2, 0, 1, 1))
+
+        self.addRecordWidget = AddRecordWidget(self)
+        self.addRecordWidget.setFixedSize(300, 300)
+        self.LAYOUT.addWidget(self.addRecordWidget, *(2, 2, 1, 1))
+
+        self.showHistoryWidget = ShowHistoryWidget(self)
+        self.showHistoryWidget.setFixedSize(500, 300)
+        self.LAYOUT.addWidget(self.showHistoryWidget, *(2, 1, 1, 1))
 
         self.show()
         return
@@ -244,7 +283,7 @@ class ConnectionTable(QWidget):
         self.tableWidget.setHorizontalHeaderLabels(["IP", "Port", "User", "Time"])
 
         header = self.tableWidget.horizontalHeader()
-        header.setSectionResizeMode(3, QHeaderView.ResizeToContents)
+        header.setSectionResizeMode(3, QHeaderView.Stretch)
 
         for count1, row in enumerate(cur.execute('SELECT * FROM Connections Where activity = 1')):
             for count2, cell in enumerate(row):
@@ -255,8 +294,9 @@ class ConnectionTable(QWidget):
         self.tableWidget.move(0, 0)
         self.lay.addWidget(self.tableWidget, *(0, 0, 1, 1))
 
-        p = Process(target=process_socket)
-        p.start()
+        for i in range(1):
+            p = Process(target=process_socket, args=(5005+1000*i,))
+            p.start()
 
         self.timer = QTimer()
         self.timer.timeout.connect(self.refresh)
@@ -287,48 +327,49 @@ class AddRecordWidget(QWidget):
 
         self.lay = QGridLayout(self)
 
-        labels = {(1, 0): "Imię:", (2, 0): "Nazwisko:",
-                    (3, 0): "PESEL:", (4, 0): "Login:", (5, 0): "Hasło:",
-                    (6, 0): "Saldo:", (7, 0): "Stan konta:"}
+        labels = {(1, 0): "Name:", (2, 0): "Surname:",
+                    (3, 0): "PESEL:", (4, 0): "Login:", (5, 0): "Password:",
+                    (6, 0): "Balance:", (7, 0): "Status:"}
 
         for pos, name in labels.items():
             x, y = pos
             label = QLabel()
             label.setText(name)
             label.setAlignment(Qt.AlignRight)
+            label.setFont(QFont('Arial', 10))
             self.lay.addWidget(label, x, y)
 
         self.textboxName = QLineEdit(self)
-        self.textboxName.setFixedSize(150, 20)
+        self.textboxName.setFixedSize(150, 25)
         self.lay.addWidget(self.textboxName, *(1, 1, 1, 1))
 
         self.textboxSurname = QLineEdit(self)
-        self.textboxSurname.setFixedSize(150, 20)
+        self.textboxSurname.setFixedSize(150, 25)
         self.lay.addWidget(self.textboxSurname, *(2, 1, 1, 1))
 
         self.textboxPESEL = QLineEdit(self)
-        self.textboxPESEL.setFixedSize(150, 20)
+        self.textboxPESEL.setFixedSize(150, 25)
         self.lay.addWidget(self.textboxPESEL, *(3, 1, 1, 1))
 
         self.textboxLogin = QLineEdit(self)
-        self.textboxLogin.setFixedSize(150, 20)
+        self.textboxLogin.setFixedSize(150, 25)
         self.lay.addWidget(self.textboxLogin, *(4, 1, 1, 1))
 
         self.textboxPassword = QLineEdit(self)
-        self.textboxPassword.setFixedSize(150, 20)
+        self.textboxPassword.setFixedSize(150, 25)
         self.lay.addWidget(self.textboxPassword, *(5, 1, 1, 1))
 
         self.textboxBalance = QLineEdit(self)
-        self.textboxBalance.setFixedSize(150, 20)
+        self.textboxBalance.setFixedSize(150, 25)
         self.lay.addWidget(self.textboxBalance, *(6, 1, 1, 1))
 
         self.selectStatus = QComboBox(self)
-        self.selectStatus.setFixedSize(150, 20)
-        self.selectStatus.addItem("Aktywne")
-        self.selectStatus.addItem("Zablokowane")
+        self.selectStatus.setFixedSize(150, 25)
+        self.selectStatus.addItem("Active")
+        self.selectStatus.addItem("Block")
         self.lay.addWidget(self.selectStatus, *(7, 1, 1, 1))
 
-        self.newRecordButton = QPushButton(self, text="Dodaj")
+        self.newRecordButton = QPushButton(self, text="Add")
         self.newRecordButton.setFixedSize(150, 40)
         self.newRecordButton.clicked.connect(self.add_new_record)
         self.lay.addWidget(self.newRecordButton, *(8, 1, 1, 1))
@@ -346,21 +387,27 @@ class AddRecordWidget(QWidget):
         login = self.textboxLogin.text()
         password = self.textboxPassword.text()
         balance = self.textboxBalance.text()
-        status = self.selectStatus.currentText() == "Aktywne"
+        status = self.selectStatus.currentText() == "Active"
 
         if len(name) == 0 or len(surname) == 0 or len(PESEL) == 0 or len(login) == 0 \
                 or len(password) == 0 or len(balance) == 0:
-            QMessageBox.about(Parent, "Błąd", "Pola nie mogą być puste.")
+            QMessageBox.about(Parent, "Error", "Field can not be empty.")
             return
         elif not name.isalpha() or not surname.isalpha():
-            QMessageBox.about(Parent, "Błąd", "Błędny typ danych.")
+            QMessageBox.about(Parent, "Error", "Invalid data.")
             return
 
         try:
             int(PESEL)
             float(balance)
         except:
-            QMessageBox.about(Parent, "Błąd", "Błędny typ danych.")
+            QMessageBox.about(Parent, "Error", "Invalid data.")
+            return
+
+        cur.execute("""SELECT * FROM ClientData where login = ?""", (login,))
+
+        if cur.fetchone():
+            QMessageBox.about(Parent, "Error", "Login already taken.")
             return
 
         cur.execute("INSERT INTO ClientData (name, surname, PESEL, login, password, balance, status)"
@@ -388,23 +435,41 @@ class ShowDatabaseWidget(QWidget):
         self.tableWidget.setRowCount(rowNumber)
         self.tableWidget.setColumnCount(11)
 
-        self.tableWidget.setHorizontalHeaderLabels(["Imię", "Nazwisko", "PESEL", "Login", "Hasło",
-                                                    "Saldo", "Status", "Liczba prób", "Aktywność", "", ""])
+        self.tableWidget.setHorizontalHeaderLabels(["Name", "Surname", "PESEL", "Login", "Password",
+                                                    "Balance", "Attempts", "Activity", "Status", "", ""])
 
-        for count1, row in enumerate(cur.execute("SELECT * FROM ClientData ORDER BY name ")):
+        header = self.tableWidget.horizontalHeader()
+        header.setSectionResizeMode(5, QHeaderView.Stretch)
+
+        for count1, row in enumerate(cur.execute("SELECT id, name, surname, pesel, login, password, balance,"
+                                                 " attempts, activity, status FROM ClientData ORDER BY name ")):
             for count2, cell in enumerate(row):
                 if count2 == 0:
+
                     deleteBtn = QPushButton(self.tableWidget)
-                    deleteBtn.setText('Usuń')
+                    deleteBtn.setText('Delete')
                     deleteBtn.setObjectName(str(cell))
                     deleteBtn.clicked.connect(self.delete_record)
                     self.tableWidget.setCellWidget(count1, 9, deleteBtn)
 
                     historyBtn = QPushButton(self.tableWidget)
-                    historyBtn.setText('Historia')
+                    historyBtn.setText('History')
                     historyBtn.setObjectName(str(cell))
                     historyBtn.clicked.connect(self.show_history)
                     self.tableWidget.setCellWidget(count1, 10, historyBtn)
+
+                elif count2 == 9:
+
+                    statusBtn = QPushButton(self.tableWidget)
+                    statusBtn.setText(str(cell))
+                    statusBtn.setObjectName(str(row[0]))
+                    statusBtn.clicked.connect(self.change_status)
+                    self.tableWidget.setCellWidget(count1, 8, statusBtn)
+
+                elif count2 == 10:
+
+                    continue
+
                 else:
                     self.tableWidget.setItem(count1, count2 - 1, QTableWidgetItem(str(cell)))
 
@@ -420,8 +485,35 @@ class ShowDatabaseWidget(QWidget):
 
     def show_history(self):
 
-        # tu w przyszłości powinno być okienko, które pokaże historie; delete_record poniżej może trochę pomóc
+        sending_button = self.sender()
+        record_id = int(sending_button.objectName())
+        cur.execute('SELECT history FROM  ClientData WHERE id=?', (record_id,))
+        history = cur.fetchone()[0]
+
+        list1 = []
+        list2 = history.split('\n')
+
+        for row in list2:
+            list1.append(row.split(' '))
+
+        Parent = self.parent().parent()
+        Parent.showHistoryWidget.refresh(list1)
+
         return
+
+    def change_status(self):
+
+        try:
+            sending_button = self.sender()
+            record_id = int(sending_button.objectName())
+            cur.execute('SELECT status FROM ClientData where id =?', (record_id,))
+            status = cur.fetchone()[0]
+            cur.execute('UPDATE ClientData SET status = ?, attempts = ? WHERE id=?', (not bool(status), 0, record_id))
+            conSQL.commit()
+            self.refresh()
+            return
+        except:
+            return
 
     def delete_record(self):
 
@@ -441,44 +533,97 @@ class ShowDatabaseWidget(QWidget):
                 return
             else:
                 self.sortingParameter = header_number
-                self.refresh()
+                self.refresh(sort=True)
                 return
 
     def refresh(self, **kwargs):
         autorefresh = kwargs.get('autorefresh', False)
+        sort = kwargs.get('sort', False)
 
         cur.execute('SELECT * FROM ClientData')
         rowNumber = len(cur.fetchall())
         self.tableWidget.setRowCount(rowNumber)
 
+        if not autorefresh and sort:
+            self.sortingStatus = not self.sortingStatus
+
         if not self.sortingStatus:
             databaseTable = cur.execute("SELECT * FROM ClientData ORDER BY {}".format(self.sortingParameter+2))
-            if not autorefresh:
-                self.sortingStatus = True
         else:
             databaseTable = cur.execute("SELECT * FROM ClientData ORDER BY {} DESC".format(self.sortingParameter+2))
-            if not autorefresh:
-                self.sortingStatus = False
+
+        self.tableWidget.setParent(None)
 
         for count1, row in enumerate(databaseTable):
             for count2, cell in enumerate(row):
-                self.tableWidget.setItem(count1, count2 - 1, QTableWidgetItem(str(cell)))
 
                 if count2 == 0:
+
                     deleteBtn = QPushButton(self.tableWidget)
-                    deleteBtn.setText("Usuń")
+                    deleteBtn.setText("Delete")
                     deleteBtn.setObjectName(str(cell))
                     deleteBtn.clicked.connect(self.delete_record)
                     self.tableWidget.setCellWidget(count1, 9, deleteBtn)
 
                     historyBtn = QPushButton(self.tableWidget)
-                    historyBtn.setText('Historia')
+                    historyBtn.setText('History')
                     historyBtn.setObjectName(str(cell))
                     historyBtn.clicked.connect(self.show_history)
                     self.tableWidget.setCellWidget(count1, 10, historyBtn)
 
+                elif count2 == 9:
+                    statusBtn = QPushButton(self.tableWidget)
+                    statusBtn.setText(str(cell))
+                    statusBtn.setObjectName(str(row[0]))
+                    statusBtn.clicked.connect(self.change_status)
+                    self.tableWidget.setCellWidget(count1, 8, statusBtn)
+
+                elif count2 == 10:
+                    continue
+
+                else:
+                    self.tableWidget.setItem(count1, count2 - 1, QTableWidgetItem(str(cell)))
+
         self.lay.addWidget(self.tableWidget, *(0, 0, 1, 1))
         return
+
+
+class ShowHistoryWidget(QWidget):
+    def __init__(self, parent):
+        QWidget.__init__(self, parent=parent)
+
+        self.lay = QGridLayout(self)
+
+        cur.execute('SELECT * FROM ClientData')
+
+        self.tableWidget = QTableWidget()
+        self.tableWidget.setRowCount(0)
+        self.tableWidget.setColumnCount(3)
+
+        self.tableWidget.setHorizontalHeaderLabels(["Type", "Amount", "Time"])
+
+        header = self.tableWidget.horizontalHeader()
+        header.setSectionResizeMode(2, QHeaderView.Stretch)
+
+        self.tableWidget.move(0, 0)
+        self.lay.addWidget(self.tableWidget, *(0, 0, 1, 1))
+
+    def refresh(self, data):
+
+        if data == [['', '']]:
+            self.tableWidget.setRowCount(0)
+        else:
+            self.tableWidget.setRowCount(len(data))
+
+        for count1, row in enumerate(data):
+            for count2, cell in enumerate(row):
+                if count2 < 2:
+                    self.tableWidget.setItem(count1, count2, QTableWidgetItem(str(cell)))
+                elif count2 == 2:
+                    self.tableWidget.setItem(count1, count2, QTableWidgetItem(str(cell) + " "+ str(row[3])))
+                else:
+                    continue
+        self.lay.addWidget(self.tableWidget, *(0, 0, 1, 1))
 
 
 if __name__ == '__main__':
