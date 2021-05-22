@@ -132,7 +132,7 @@ def process_request(conn, addr):
                     cur.execute('SELECT history FROM  ClientData WHERE id=?', (UserId,))
                     history = cur.fetchone()[0]
                     conn.send(str.encode(history))
-                    print("historia")
+
                 elif data.decode() == 'Show data':
                     for row in cur.execute("SELECT * FROM ClientData WHERE id = '%s'" % UserId):
                         for cell in row:
@@ -142,7 +142,6 @@ def process_request(conn, addr):
                                         "PESEL": AccountData[3], "login": AccountData[4], "password": AccountData[5],
                                         "balance": AccountData[6], "status": AccountData[9]}
 
-                    print(AccountDataDic)
                     conn.send(str.encode(str(AccountDataDic)))
                 try:
                     DecodedData = ast.literal_eval(data.decode())
