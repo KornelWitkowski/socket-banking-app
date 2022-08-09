@@ -1,2 +1,12 @@
 # socket-banking-app
-A simple python banking application in the client-server architecture with a SQLlite database and with the use of sockects.
+A simple python banking-like application in the client-server architecture with a SQLlite database and with the use of sockets. 
+
+It allows to connect up to 5 client (cash machines) in the LAN network to a server (system). The server contains database and sends requested information if the user is certified.
+
+The main window of the system app.
+
+<img src="https://github.com/KornelWitkowski/socket-banking-app/blob/master/readme_imgs/I1.png" width="800"/>
+
+The main window of the cash machine app after certification.
+
+<img src="https://github.com/KornelWitkowski/socket-banking-app/blob/master/readme_imgs/I2.png" width="400"/>
