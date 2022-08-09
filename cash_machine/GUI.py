@@ -1,26 +1,28 @@
-import sys
 import socket
-import time
-import ast
+from utils import get_float
 
-from PyQt5.QtWidgets import *
-from PyQt5.QtCore import *
-from PyQt5.QtGui import *
+from PyQt5.QtWidgets import (QFrame, QGridLayout, QLabel, QLineEdit, QMessageBox,
+                             QWidget, QPushButton, QMainWindow, QTableWidgetItem, QTableWidget, QHeaderView)
+from PyQt5.QtCore import Qt, QTimer, QDateTime
+from PyQt5.QtGui import QFont, QIcon
 
-import json
+from Communicates import Communicates
+from CashMachineConnectionService import CashMachineConnectionService
+
 
 TCP_IP = '127.0.0.1'
-TCP_PORT = 5005
-BUFFER_SIZE = 10*1024
-
-
-s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-s.connect((TCP_IP, TCP_PORT))
+TCP_PORT = 7008
 
 
 class MainWindow(QMainWindow):
     def __init__(self):
         super(MainWindow, self).__init__()
+        self.login_window = None
+        self.logged_in_window = None
+
+        self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self.socket.connect((TCP_IP, TCP_PORT))
+        self.connection_service = CashMachineConnectionService(self.socket)
 
         self.setGeometry(300, 300, 500, 450)
         self.setWindowTitle("Cash machine")
@@ -31,17 +33,40 @@ class MainWindow(QMainWindow):
         self.frame.setLayout(self.layout)
         self.setCentralWidget(self.frame)
 
-        self.LoginWid = LoginWidget(self)
-        self.LoginWid.setFixedSize(500, 250)
-        self.layout.addWidget(self.LoginWid, *(1, 1, 1, 1))
+        self.create_login_window()
 
         self.show()
         return
 
+    def create_login_window(self):
+        self.login_window = LoginWidget(self)
+        self.login_window.setFixedSize(500, 250)
+        self.layout.addWidget(self.login_window, *(1, 1, 1, 1))
+        return
+
+    def create_logged_in_window(self):
+        self.logged_in_window = LoggedInWindow(self)
+        self.logged_in_window.setFixedSize(320, 400)
+        self.layout.addWidget(self.logged_in_window)
+        return
+
+    def send_communicate(self, communicate):
+        return self.connection_service.send_communicate(communicate)
+
+    def send_dict_and_receive_response(self, dictionary):
+        return self.connection_service.send_dict_and_receive_response(dictionary)
+
+    def send_communicate_and_receive_response(self, communicate):
+        return self.connection_service.send_communicate_and_receive_response(communicate)
+
+    def send_communicate_and_receive_string(self, communicate):
+        return self.connection_service.send_communicate_and_receive_string(communicate)
+
 
 class LoginWidget(QWidget):
-    def __init__(self, parent):
-        QWidget.__init__(self, parent=parent)
+    def __init__(self, main_window):
+        QWidget.__init__(self)
+        self.main_window = main_window
         self.layout = QGridLayout(self)
 
         self.labelLogin = QLabel("Login:")
@@ -66,40 +91,34 @@ class LoginWidget(QWidget):
         self.setBtn = QPushButton(text='Log in')
         self.setBtn.setFont(QFont('Arial', 14))
         self.setBtn.setFixedSize(200, 45)
-        self.setBtn.clicked.connect(self.loginbtn_push)
+        self.setBtn.clicked.connect(self.push_login_button)
         self.layout.addWidget(self.setBtn, *(5, 0))
 
         return
 
-    def loginbtn_push(self):
+    def create_logged_in_window(self):
+        self.setParent(None)        # turn off the current login window
+        self.main_window.create_logged_in_window()
+        return
 
-        Login = self.textboxLogin.text()
-        Password = self.textboxPassword.text()
-        data = {"Login": Login, "Password": Password}
-        s.send(str.encode(str(data)))
-        answer = s.recv(BUFFER_SIZE)
+    def push_login_button(self):
+        login, password = self.textboxLogin.text(), self.textboxPassword.text()
+        login_dict = {"Login": login, "Password": password}
 
-        Parent = self.parent().parent()
+        response = self.main_window.send_dict_and_receive_response(login_dict)
 
-        if answer.decode() == "Ok":
-            self.setParent(None)
-            Parent.LoggedinWin = LoggedinWindow(Parent)
-            Parent.LoggedinWin.setFixedSize(320, 400)
-            Parent.layout.addWidget(Parent.LoggedinWin)
-        else:
-            QMessageBox.about(self, "Information", answer.decode())
+        if response == Communicates.LOGGED_IN.value:
+            self.create_logged_in_window()
+            return
+        QMessageBox.about(self, "Information", f"System communicate: {str(Communicates(response))}")
 
 
-class LoggedinWindow(QWidget):
-    def __init__(self, parent):
-        QWidget.__init__(self, parent=parent)
+class LoggedInWindow(QWidget):
+    def __init__(self, main_window):
+        QWidget.__init__(self)
+        self.main_window = main_window
 
-        time.sleep(0.1)
-        s.send(str.encode("Give me all that you got now!"))
-        answer = s.recv(BUFFER_SIZE)
-
-        json_acceptable_string = answer.decode().replace("'", "\"")
-        Data = json.loads(json_acceptable_string)
+        Data = self.main_window.send_communicate_and_receive_response(Communicates.GIVE_ACCOUNT_DATA)
 
         self.layout = QGridLayout(self)
         self.labelTime = QLabel(QDateTime.currentDateTime().toString('yyyy-MM-dd hh:mm:ss'))
@@ -141,86 +160,85 @@ class LoggedinWindow(QWidget):
         self.layout.addWidget(self.setBtn, *(8, 0, 1, 1))
 
     def push_button(self):
-        sendingButtonName = self.sender().objectName()
-        amount = self.textboxAmount.text()
+        action_name = self.sender().objectName()
 
-        if sendingButtonName == "Deposit":
-
-            time = QDateTime.currentDateTime()
-            timeDisplay = time.toString('yyyy-MM-dd hh:mm:ss')
-            try:
-                if int(amount) > 0:
-                    data = {"transaction type": "Deposit", "amount": amount, "transaction time": timeDisplay}
-                    s.send(str.encode(str(data)))
-                    answer = s.recv(BUFFER_SIZE)
-
-                    DecodedData = ast.literal_eval(answer.decode())
-                    self.labelBalance.setText("Balance:  " + str(DecodedData["balance"]))
-            except:
-                pass
-
-        elif sendingButtonName == "Payout":
-
-            time = QDateTime.currentDateTime()
-            timeDisplay = time.toString('yyyy-MM-dd hh:mm:ss')
-            try:
-                if int(amount) > 0:
-                    data = {"transaction type": "Payout", "amount": amount, "transaction time": timeDisplay}
-                    s.send(str.encode(str(data)))
-                    answer = s.recv(BUFFER_SIZE)
-
-                    if answer.decode() == "Not enough money.":
-                        QMessageBox.about(self, "Error", "Not enough money.")
-                    else:
-                        DecodedData = ast.literal_eval(answer.decode())
-                        self.labelBalance.setText("Balance:  " + str(DecodedData["balance"]))
-            except:
-                pass
-        elif sendingButtonName == "Change password":
-            self.changePassword = ChangePasswordWindow()
-            self.changePassword.show()
-        elif sendingButtonName == "Block account":
-            reply = QMessageBox.question(self, 'Block account', 'Are you sure you want to do it?',
-                                         QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
-            if reply == QMessageBox.Yes:
-                s.send(str.encode(str("Block account")))
-                answer = s.recv(BUFFER_SIZE)
-
-                if answer.decode() == "Account has been blocked":
-                    self.log_out(message="Account has been blocked")
-
-        elif sendingButtonName == "Data":
-            s.send(str.encode(str("Show data")))
-            answer = s.recv(BUFFER_SIZE)
-            DecodedData = ast.literal_eval(answer.decode())
-            self.DataWin = DataWindow(DecodedData, parent=self)
-            self.DataWin.show()
-
-        elif sendingButtonName == "History":
-            s.send(str.encode(str("History")))
-            answer = s.recv(BUFFER_SIZE)
-            self.HistoryWin = HistoryWindow(answer.decode(), parent=self)
-            self.HistoryWin.show()
+        if action_name in ("Deposit", "Payout"):
+            self.make_payment(action_name)
+            return
+        if action_name == "Change password":
+            self.show_change_password_window()
+            return
+        if action_name == "Block account":
+            self.service_block_account()
+            return
+        if action_name == "Data":
+            self.show_data()
+            return
+        if action_name == "History":
+            self.show_history()
+            return
+        return
 
     def show_time(self):
-        time = QDateTime.currentDateTime()
-        timeDisplay = time.toString('yyyy-MM-dd hh:mm:ss')
-        self.labelTime.setText(timeDisplay)
+        self.labelTime.setText(self.get_time())
 
-    def log_out(self, **kwargs):
-        message = kwargs.get('message', "Logged out")
-        s.send(str.encode("Logout"))
-        Parent = self.parent().parent()
+    def log_out(self, message="Logged out"):
+        self.main_window.send_communicate(Communicates.LOGOUT)
         self.setParent(None)
-        Parent.logout = LogoutWidget(self, message)
-        Parent.logout.setFixedSize(500, 250)
-        Parent.layout.addWidget(Parent.logout, *(1, 1, 1, 1))
+        self.main_window.logout = LogoutWidget(self.main_window, message)
+        self.main_window.logout.setFixedSize(500, 250)
+        self.main_window.layout.addWidget(self.main_window.logout, *(1, 1, 1, 1))
+
+    def get_amount(self):
+        return get_float(self.textboxAmount.text())
+
+    def get_time(self):
+        return QDateTime.currentDateTime().toString('yyyy-MM-dd hh:mm:ss')
+
+    def make_payment(self, action_name):
+        amount = self.get_amount()
+        if amount is None:
+            return
+
+        response = self.main_window.send_communicate_and_receive_response(Communicates.PAYMENT)
+        if not response == Communicates.SEND_DICT.value:
+            return
+
+        payment_dict = {"transaction type": action_name, "amount": amount, "transaction time": self.get_time()}
+        response = self.main_window.send_dict_and_receive_response(payment_dict)
+
+        self.labelBalance.setText("Balance:  " + str(response["balance"]))
+        return
+
+    def show_data(self):
+        data = self.main_window.send_communicate_and_receive_response(Communicates.GIVE_ACCOUNT_DATA)
+        DataWindow(data, self).show()
+        return
+
+    def show_history(self):
+        history = self.main_window.send_communicate_and_receive_string(Communicates.GIVE_HISTORY)
+        HistoryWindow(history, self).show()
+        return
+
+    def show_change_password_window(self):
+        ChangePasswordWindow(self.main_window)
+        return
+
+    def service_block_account(self):
+        reply = QMessageBox.question(self, 'Block account', 'Are you sure you want to do it?',
+                                     QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+        if reply == QMessageBox.Yes:
+            response = self.main_window.send_communicate_and_receive_response(Communicates.BLOCK_ACCOUNT)
+            if response == Communicates.ACCOUNT_HAS_BEEN_BLOCKED.value:
+                self.log_out(message="Account has been blocked")
+        return
 
 
 class LogoutWidget(QWidget):
-    def __init__(self, parent, message):
-        QWidget.__init__(self, parent=parent)
+    def __init__(self, main_window, message):
+        QWidget.__init__(self)
         self.layout = QGridLayout(self)
+        self.main_window = main_window
 
         self.labelName = QLabel(message)
         self.labelName.setFont(QFont('Arial', 14))
@@ -236,19 +254,18 @@ class LogoutWidget(QWidget):
         return
 
     def close(self):
-        Parent = self.parent().parent()
         self.setParent(None)
-
-        Parent.LoginWid.textboxLogin.clear()
-        Parent.LoginWid .textboxPassword.clear()
-
-        Parent.layout.addWidget(Parent.LoginWid, *(1, 1, 1, 1))
+        self.main_window.login_window.textboxLogin.clear()
+        self.main_window.login_window.textboxPassword.clear()
+        self.main_window.layout.addWidget(self.main_window.login_window, *(1, 1, 1, 1))
+        return
 
 
 class ChangePasswordWindow(QMainWindow):
-    def __init__(self):
-        super(ChangePasswordWindow, self).__init__()
+    def __init__(self, main_window):
+        super(ChangePasswordWindow, self).__init__(parent=main_window)
 
+        self.main_window = main_window
         self.setGeometry(300, 300, 350, 300)
         self.setWindowTitle("Change password")
         self.setWindowIcon(QIcon("iconChangePassword.jpg"))
@@ -257,8 +274,7 @@ class ChangePasswordWindow(QMainWindow):
         self.layout = QGridLayout()
         self.frame.setLayout(self.layout)
         self.setCentralWidget(self.frame)
-
-        self.loginWin = ChangePasswordWidget(self)
+        self.loginWin = ChangePasswordWidget(self, self.main_window)
         self.loginWin.setFixedSize(250, 250)
         self.layout.addWidget(self.loginWin, *(1, 1, 1, 1))
 
@@ -268,8 +284,9 @@ class ChangePasswordWindow(QMainWindow):
 
 
 class ChangePasswordWidget(QWidget):
-    def __init__(self, parent):
+    def __init__(self, parent, main_window):
         QWidget.__init__(self, parent=parent)
+        self.main_window = main_window
         self.layout = QGridLayout(self)
 
         self.labelCurrentPassword = QLabel("Current password:")
@@ -319,15 +336,21 @@ class ChangePasswordWidget(QWidget):
         Parent.close()
 
     def confirm(self):
+        current_password = self.textboxCurrentPassword.text()
+        new_password = self.textboxNewPassword.text()
+        confirmed_password = self.textboxConfirmedPassword.text()
+        response = self.main_window.send_communicate_and_receive_response(Communicates.CHANGE_PASSWORD)
 
-        CurrentPassword = self.textboxCurrentPassword.text()
-        NewPassword = self.textboxNewPassword.text()
-        ConfirmedPassword = self.textboxConfirmedPassword.text()
+        if not response == Communicates.SEND_DICT.value:
+            return
 
-        data = {"CurrentPassword": CurrentPassword, "NewPassword": NewPassword, "ConfirmedPassword": ConfirmedPassword}
-        s.send(str.encode(str(data)))
-        answer = s.recv(BUFFER_SIZE)
-        QMessageBox.about(self, "Information", answer.decode())
+        data = {"CurrentPassword": current_password,
+                "NewPassword": new_password,
+                "ConfirmedPassword": confirmed_password}
+
+        response = self.main_window.send_dict_and_receive_response(data)
+
+        QMessageBox.about(self, "Information", f"System communicate: {str(Communicates(response))}")
         Parent = self.parent().parent()
         Parent.close()
 
@@ -345,31 +368,24 @@ class DataWindow(QMainWindow):
         self.setCentralWidget(self.frame)
 
         for count, key in enumerate(data):
+            if key == "history":
+                break
             self.label = QLabel(str(key) + ": " + str(data[key]))
             self.label.setFont(QFont('Arial', 10))
             self.label.setAlignment(Qt.AlignLeft)
             self.layout.addWidget(self.label, *(count, 0, 1, 1))
 
-        self.show
+        return
 
 
 class HistoryWindow(QMainWindow):
-    def __init__(self, data, parent=None):
+    def __init__(self, history, parent=None):
         super(HistoryWindow, self).__init__(parent)
 
         self.frame = QFrame(self)
         self.layout = QGridLayout()
         self.frame.setLayout(self.layout)
         self.setCentralWidget(self.frame)
-
-        list1 = []
-        list2 = data.split('\n')
-
-        for row in list2:
-            list1.append(row.split(' '))
-
-        data = list1
-
         self.setGeometry(400, 300, 500, 400)
         self.setWindowTitle("History")
 
@@ -382,28 +398,17 @@ class HistoryWindow(QMainWindow):
         header = self.tableWidget.horizontalHeader()
         header.setSectionResizeMode(2, QHeaderView.Stretch)
 
-        if data == [['', '']]:
-            self.tableWidget.setRowCount(0)
-        else:
-            self.tableWidget.setRowCount(len(data))
+        history_table = [row.split(' ') for row in history.split('\n')][:-1]
 
-        for count1, row in enumerate(data):
-            for count2, cell in enumerate(row):
-                if count2 < 2:
-                    self.tableWidget.setItem(count1, count2, QTableWidgetItem(str(cell)))
-                elif count2 == 2:
-                    self.tableWidget.setItem(count1, count2, QTableWidgetItem(str(cell) + " "+ str(row[3])))
-                else:
-                    continue
+        self.tableWidget.setRowCount(len(history_table))
+
+        for row_number, row in enumerate(history_table):
+            for column_number, cell in enumerate(row):
+                if column_number < 2:
+                    self.tableWidget.setItem(row_number, column_number, QTableWidgetItem(str(cell)))
+                if column_number == 2:
+                    day, time = cell, row[3]
+                    self.tableWidget.setItem(row_number, column_number, QTableWidgetItem(f"{day} {time}"))
 
         self.tableWidget.move(0, 0)
         self.layout.addWidget(self.tableWidget, *(0, 0, 1, 1))
-
-        self.show
-
-
-if __name__ == '__main__':
-    app = QApplication(sys.argv)
-    QApplication.setStyle(QStyleFactory.create('Plastique'))
-    myGUI = MainWindow()
-    sys.exit(app.exec_())
